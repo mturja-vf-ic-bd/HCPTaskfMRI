@@ -63,7 +63,7 @@ The model architecture consists of a 1D Convolutional Neural Network (1D-CNN) co
     body2b_wm       0.83      0.83      0.83      9338
    place2b_wm       0.90      0.87      0.88      9338
     face0b_wm       0.86      0.83      0.84      9338
-    place0b_wm      0.86      0.82      0.84      9338
+   place0b_wm       0.86      0.82      0.84      9338
 
     accuracy                           0.80    252937
    macro avg       0.72      0.72      0.71    252937
