@@ -4,13 +4,33 @@ Goal of this project is to test different neural network architecture to classif
 ### Dataset
 The dataset comprises task fMRI data for 1042 subjects, encompassing 7 distinct tasks. Each task comprises multiple sub-tasks, totaling 21 sub-tasks across all tasks.
 
-* EMOTION
+* Emotion
+   * non-emo
+   * fear-emo
 * GAMBLING
+   * loss-gamb
+   * win-gamb
 * MOTOR
+   * hand-mot
+   * foot-mot
+   * tongue-mot
 * WORKING MEMORY
+   * body0b_wm
+   * face2b_wm
+   * tool0b_wm
+   * body2b_wm
+   * place2b_wm
+   * face0b_wm
+   * place0b_wm
 * LANGUAGE
+   * story-lang
+   * math-lang
 * SOCIAL
+   * mental-soc
+   * random-soc
 * RELATION
+   * relat-reson
+   * match-reson
 
 #### Train Test Split
 The dataset is partitioned into two subsets: 60% for training and 40% for testing. Within the training subset, an 80-20 split is applied, resulting in 80% designated for training data and 20% for validation data.
