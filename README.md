@@ -7,7 +7,7 @@ The dataset comprises task fMRI data for 1042 subjects, encompassing 7 distinct 
 * EMOTION
 * GAMBLING
 * MOTOR
-* WM
+* WORKING MEMORY
 * LANGUAGE
 * SOCIAL
 * RELATION
