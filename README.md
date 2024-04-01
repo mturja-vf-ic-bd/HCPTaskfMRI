@@ -2,7 +2,7 @@
 Goal of this project is to test different neural network architecture to classify HCP task fMRI data.
 
 ### Dataset
-The dataset consists of Task fMRI data for 1042 subjects for 7 different tasks where each task consist of several sub-tasks. There are a total of 21 sub-tasks across all the tasks.
+The dataset comprises functional magnetic resonance imaging (fMRI) data pertaining to tasks for 1042 subjects, encompassing 7 distinct tasks. Each task comprises multiple sub-tasks, totaling 21 sub-tasks across all tasks.
 
 * EMOTION
 * GAMBLING
@@ -13,11 +13,11 @@ The dataset consists of Task fMRI data for 1042 subjects for 7 different tasks w
 * RELATION
 
 #### Train Test Split
-The dataset is split into 60% training and 40% test data. The training data is further split into 80% training and 20% validation dataset.
+The dataset is partitioned into two subsets: 60% for training and 40% for testing. Within the training subset, an 80-20 split is applied, resulting in 80% designated for training data and 20% for validation data.
 
 ### Model
 #### CNN model
-This is a 1d-CNN model with 6 layers of 1-d CNN kernel interleaved by max pooling layer after every 2 CNN layer. Finally it has 2 layer of MLP at the end for classification.
+The model architecture consists of a 1D Convolutional Neural Network (1D-CNN) comprising six layers of 1D CNN kernels. These CNN layers are alternated with Dropout, max-pooling layers and ReLU, with a max-pooling layer inserted after every two consecutive CNN layers. Finally, the model concludes with two layers of Multi-Layer Perceptron (MLP) for classification purposes.
 #### Result
 ```
          class  precision   recall   f1-score   support
