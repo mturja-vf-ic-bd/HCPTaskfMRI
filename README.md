@@ -2,7 +2,7 @@
 Goal of this project is to test different neural network architecture to classify HCP task fMRI data.
 
 ### Dataset
-The dataset comprises functional magnetic resonance imaging (fMRI) data pertaining to tasks for 1042 subjects, encompassing 7 distinct tasks. Each task comprises multiple sub-tasks, totaling 21 sub-tasks across all tasks.
+The dataset comprises task fMRI data for 1042 subjects, encompassing 7 distinct tasks. Each task comprises multiple sub-tasks, totaling 21 sub-tasks across all tasks.
 
 * EMOTION
 * GAMBLING
