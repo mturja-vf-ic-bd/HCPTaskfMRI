@@ -10,6 +10,6 @@ class TestFMRI_CNN(unittest.TestCase):
         print(self.model)
 
     def test_forward(self):
-        x = torch.randn(2, 360, 16)
+        x = torch.randn(2, 16, 360)
         y = self.model(x)
         self.assertEqual(y.shape, (2, 16))

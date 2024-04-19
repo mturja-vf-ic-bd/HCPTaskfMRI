@@ -89,6 +89,7 @@ class HCPTaskDataset(torch.utils.data.Dataset):
             self,
             subject_ids: List[str],
             input_length: int,  # num of input steps
+            output_length: int,
             datapath: str = None,
             jumps: int = 1,
             task_names: List[str] = None,
@@ -100,6 +101,7 @@ class HCPTaskDataset(torch.utils.data.Dataset):
             datapath, task_names, subject_ids)
         print("Number of files: ", len(self.file_paths))
         self.input_length = input_length
+        self.output_length = output_length
         segment_maps = generate_segment_maps(datapath)
         class_to_label = get_class_to_label(segment_maps)
 
@@ -116,8 +118,8 @@ class HCPTaskDataset(torch.utils.data.Dataset):
                              if task in filepath), None)
             for class_name, seg in segments.items():
                 for left, right in seg:
-                    for j in range(left, right - input_length + 1, jumps):
-                        if len(self.fmri_data[i]) - j < input_length:
+                    for j in range(left, right - input_length - output_length + 1, jumps):
+                        if len(self.fmri_data[i]) - j < input_length + output_length:
                             # Skipping short windows to make sure
                             # all samples have the same number of time points
                             continue
@@ -131,7 +133,6 @@ class HCPTaskDataset(torch.utils.data.Dataset):
             np.random.shuffle(indices)
             self.ts_indices = [self.ts_indices[idx] for idx in indices]
             self.class_labels = [self.class_labels[idx] for idx in indices]
-
         print("Loaded Dataset!")
 
     def __len__(self):
@@ -141,14 +142,17 @@ class HCPTaskDataset(torch.utils.data.Dataset):
         # Convert to PyTorch tensor
         i, j = self.ts_indices[idx]
         x = self.fmri_data[i][j:j + self.input_length]
+        y = self.fmri_data[i][j + self.input_length: j + self.input_length + self.output_length]
         label = self.class_labels[idx]
 
         return torch.from_numpy(x).float(), \
+               torch.from_numpy(y).float(), \
                torch.LongTensor([label])
 
 
 def generate_data_sets(datapath,
                        input_length,
+                       output_length,
                        jumps,
                        task_names=None,
                        mode="train",
@@ -182,23 +186,28 @@ def generate_data_sets(datapath,
         random_state=random_state)
     valid_ids = train_ids[0:int(len(train_ids) * 0.2)]
     train_ids = train_ids[int(len(train_ids) * 0.2):]
-    print(train_ids, valid_ids)
+    print("Train: ", train_ids[0:5])
+    print("Valid: ", valid_ids[0:5])
+    print("Test: ", test_ids[0:5])
     # Create Dataset Object
     if mode == "train":
         train_set = HCPTaskDataset(
             train_ids, input_length,
+            output_length,
             datapath,
             jumps, task_names, True)
         return train_set
     elif mode == "valid":
         valid_set = HCPTaskDataset(
             valid_ids, input_length,
+            output_length,
             datapath,
             jumps, task_names, True)
         return valid_set
     elif mode == "test":
         test_set = HCPTaskDataset(
             test_ids, input_length,
+            output_length,
             datapath,
             jumps, task_names, False)
         return test_set
@@ -208,6 +217,36 @@ def generate_data_sets(datapath,
             input_length, datapath,
             jumps, task_names, False)
         return all_set
+
+
+class HCPTaskTensorDataset(torch.utils.data.Dataset):
+    def __init__(self, X, Y, labels):
+        super().__init__()
+        self.X = X
+        self.Y = Y
+        self.labels = labels
+
+    def __len__(self):
+        return self.X.shape[0]
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.Y[idx], self.labels[idx]
+
+
+def generate_preloaded_dataset(
+        datapath,
+        input_length,
+        output_length,
+        task_names=None,
+        mode="train",
+        random_state=1):
+    if not task_names:
+        task_names = []
+    filename = f"inp{input_length}_out{output_length}_task{''.join(task_names)}_mode{mode}_seed{random_state}"
+    X = np.load(os.path.join(datapath, filename + "_x.npy"))
+    Y = np.load(os.path.join(datapath, filename + "_y.npy"))
+    labels = np.load(os.path.join(datapath, filename + "_labels.npy"))
+    return HCPTaskTensorDataset(X, Y, labels)
 
 
 def generate_data_from_single_file(
@@ -221,4 +260,38 @@ def generate_data_from_single_file(
     return dataset
 
 
+def store_data_into_disk(
+        datapath,
+        input_length,
+        output_length,
+        jumps,
+        task_names=None,
+        mode="train",
+        random_state=1,
+        batch_size=32, writedir=None):
+    dataset = generate_data_sets(
+        datapath,
+        input_length,
+        output_length,
+        jumps,
+        task_names,
+        mode,
+        random_state)
+    dataloader = DataLoader(dataset, batch_size=batch_size)
+    if not task_names:
+        task_names = []
+    filename = f"inp{input_length}_out{output_length}_task{''.join(task_names)}_mode{mode}_seed{random_state}"
+    X = []
+    Y = []
+    labels = []
+    for x, y, l in dataloader:
+        X.append(x.cpu().numpy())
+        Y.append(y.cpu().numpy())
+        labels.append(l.cpu().numpy())
 
+    X = np.concatenate(X)
+    Y = np.concatenate(Y)
+    labels = np.concatenate(labels)
+    np.save(os.path.join(writedir, filename + "_x.npy"), X)
+    np.save(os.path.join(writedir, filename + "_y.npy"), Y)
+    np.save(os.path.join(writedir, filename + "_labels.npy"), labels)

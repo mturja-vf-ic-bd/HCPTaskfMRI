@@ -35,7 +35,7 @@ import time
 
 from sklearn.metrics import classification_report
 from tqdm import tqdm
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 import re
 
 
@@ -43,10 +43,12 @@ import numpy as np
 import torch
 from torch.utils import data
 
-from src.data.datasets import generate_data_sets
+from src.data.datasets import generate_data_sets, generate_preloaded_dataset
 from src.model.cnn.model import FMRI_CNN
+from src.model.knf.knf_cnn import KNF_CNN
+from src.model.knf.knf_cnn_global import KNF_CNN_GLOBAL
 from src.model.transformer.vanilla_transformer import VanillaTransformer
-from src.trainers.utils import train_one_epoch, eval_one_epoch
+from src.trainers.utils import train_one_epoch, eval_one_epoch, train_one_knf_epoch, eval_one_knf_epoch
 
 
 def get_lr(optimizer):
@@ -54,23 +56,33 @@ def get_lr(optimizer):
         return param_group["lr"]
 
 
+def print_epoch_statement(train_loss, eval_loss):
+    output = "|"
+    for k, v in train_loss.items():
+        output += f"{k}: ({v:0.3f}, {eval_loss[k]:0.3f}), "
+    return output
+
+
 def main(seed,
          rank,
-         input_length, num_feats,
-         num_layers, hidden_channel,
+         backbone_layers,
+         backbone_hidden_channel,
+         cls_layers,
+         cls_hidden_channel,
+         transformer_layers,
+         transformer_hidden,
+         add_global_operator,
+         input_length,
+         output_length,
+         num_feats,
+         num_classes, task_names,
          batch_size, learning_rate,
          mode, num_epochs, dropout, model_str):
-    random.seed(seed)  # python random generator
-    np.random.seed(seed)  # numpy random generator
 
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-    random.seed(seed)  # python random generator
-    np.random.seed(seed)  # numpy random generator
-
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    # np.random.seed(seed)  # numpy random generator
+    #
+    # torch.manual_seed(seed)
+    # torch.cuda.manual_seed_all(seed)
 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -80,75 +92,72 @@ def main(seed,
         "Cryptos": "data/Cryptos",
         "Task": "data/task",
         "megatrawl": "data/megatrawl",
-        "hcptask": "/Users/mturja/PycharmProjects/DeepGraphKoopmanOperator/data/HCP_7tasks"
+        # "hcptask": "/Users/mturja/PycharmProjects/DeepGraphKoopmanOperator/data/HCP_7tasks"
+        "hcptask": "/home/mturja/HCP_7task_preloaded"
     }
     dataset_name = "hcptask"
     data_dir = data_dir[dataset_name]
     print(f"Dataset directory: {data_dir}")
-    train_set = generate_data_sets(
-        input_length=input_length,
-        mode="train",
-        jumps=1,
-        datapath=data_dir,
-        random_state=seed,
-        task_names=["EMOTION"]
-    )
-    valid_set = generate_data_sets(
-        input_length=input_length,
-        mode="valid",
-        jumps=1,
-        datapath=data_dir,
-        random_state=seed,
-        task_names=["EMOTION"]
-    )
-    test_set = generate_data_sets(
-        input_length=input_length,
-        mode="test",
-        jumps=1,
-        datapath=data_dir,
-        random_state=seed,
-        task_names=["EMOTION"]
-    )
+
+    train_set = generate_preloaded_dataset(
+        data_dir, input_length, output_length,
+        task_names, "train", seed)
+    valid_set = generate_preloaded_dataset(
+        data_dir, input_length, output_length,
+        task_names, "valid", seed)
+    test_set = generate_preloaded_dataset(
+        data_dir, input_length, output_length,
+        task_names, "test", seed)
 
     train_loader = data.DataLoader(
-        train_set, batch_size=batch_size, shuffle=True
-    )
+        train_set, batch_size=batch_size, shuffle=True)
     valid_loader = data.DataLoader(
-        valid_set, batch_size=batch_size, shuffle=False
-    )
+        valid_set, batch_size=batch_size, shuffle=False)
     test_loader = data.DataLoader(
-        test_set, batch_size=batch_size, shuffle=False
-    )
+        test_set, batch_size=batch_size, shuffle=False)
 
     model_name = (
-            "HCPTaskClassifier_"
+            f"HCPTask_{model_str}"
             + str(dataset_name)
-            + f"_model{model_str}_"
             + f"_seed{seed}_"
               f"lr{learning_rate}_"
-              f"inp{input_length}"
+              f"tfchannel{transformer_hidden}_"
+              f"tflayer{transformer_layers}_"
+              f"clslayer{cls_layers}_"
+              f"clschannel{cls_hidden_channel}_"
+              f"global{add_global_operator}_"
+              f"inp{input_length}_"
+              f"pred{output_length}"
     )
     print(model_name)
-    if model_str == "fmri_cnn":
-        model = FMRI_CNN(
-            num_layers=num_layers,
-            in_channels=num_feats,
-            hidden_channel=hidden_channel,
-            num_classes=21,
-            num_dense_layers=3,
-            dropout=dropout
+    if model_str == "knfcnn":
+        model = KNF_CNN(
+            backbone_layers=backbone_layers,
+            backbone_hidden_channel=backbone_hidden_channel,
+            cls_layers=cls_layers,
+            cls_hidden_channel=cls_hidden_channel,
+            transformer_layers=transformer_layers,
+            transformer_hidden=transformer_hidden,
+            dropout=dropout,
+            time_points=input_length,
+            num_nodes=num_feats,
+            num_classes=num_classes,
+            add_global_attention=add_global_operator
         )
     else:
-        model = VanillaTransformer(
-            num_layers=num_layers,
-            d_model=num_feats,
-            num_heads=4,
-            num_classes=21,
+        model = KNF_CNN_GLOBAL(
+            backbone_layers=backbone_layers,
+            backbone_hidden_channel=backbone_hidden_channel,
+            cls_layers=cls_layers,
+            cls_hidden_channel=cls_hidden_channel,
             dropout=dropout,
-            num_dense_layers=3,
-            dim_feedforward=64
+            num_nodes=num_feats,
+            num_classes=num_classes
         )
-    model = model.to(rank)
+
+    if rank >= 0:
+        model = model.to(rank)
+
     results_dir = dataset_name + "_results/"
     if os.path.exists(results_dir + model_name + ".pth"):
         ckpt = torch.load(results_dir + model_name + ".pth")
@@ -170,6 +179,7 @@ def main(seed,
         if not os.path.exists(results_dir):
             os.mkdir(results_dir)
         print("New model")
+    print(model)
 
     print("number of params:",
           sum(p.numel() for p in model.parameters() if p.requires_grad))
@@ -187,18 +197,18 @@ def main(seed,
     if mode == "train":
         for epoch in tqdm(range(last_epoch, num_epochs)):
             start_time = time.time()
-            train_loss = train_one_epoch(
+            train_loss = train_one_knf_epoch(
                 train_loader,
                 model,
                 optimizer,
                 rank=rank)
-            eval_loss, y_pred, y_true = eval_one_epoch(
+            eval_loss, _, _, _, _ = eval_one_knf_epoch(
                 valid_loader,
                 model,
                 rank=rank)
 
-            if eval_loss <= best_eval_loss:
-                best_eval_loss = eval_loss
+            if eval_loss["loss"] <= best_eval_loss:
+                best_eval_loss = eval_loss["loss"]
                 best_model = model
                 torch.save({"model": best_model.state_dict(),
                             "epoch": epoch, "lr": get_lr(optimizer)},
@@ -206,15 +216,20 @@ def main(seed,
 
             epoch_time = time.time() - start_time
             scheduler.step()
-            print(f'Epoch {epoch + 1} | T: {epoch_time / 60:0.2f} | '
-                  f'Train Loss: {train_loss:0.3f}, '
-                  f'Eval Loss: {eval_loss:0.3f}', flush=True)
+            statement = print_epoch_statement(train_loss, eval_loss)
+            print(f'Epoch {epoch + 1} | T: {epoch_time / 60:0.2f} | {statement}', flush=True)
     elif mode == "test":
         print(f"Test set length: {len(test_loader)}")
-        test_loss, test_preds, test_labels = eval_one_epoch(
+        test_losses, _, test_preds, test_labels, test_smape = eval_one_knf_epoch(
             test_loader, best_model, rank=rank)
 
         test_preds = np.argmax(test_preds, axis=1)
+        print(f"Test label shape: {test_labels.shape}")
+        print(f"Test label dist: {Counter(test_preds)}")
+        print(f"Test true labels: {Counter(test_labels.squeeze())}")
+        print(test_preds)
+        test_loss = test_losses["loss"]
+        print(f"Test Loss: {test_loss:0.3f}, Test SMAPE: {test_smape:0.4f}")
         print(classification_report(test_labels, test_preds))
         torch.save(
             {
@@ -229,22 +244,29 @@ def run_training():
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--max_epochs", nargs="?", type=int, default=100)
     parser.add_argument("--lr", default=0.0001, type=float, help="learning rate")
-    parser.add_argument("--mode", choices=["train", "test"], default="test")
+    parser.add_argument("--mode", choices=["train", "test"], default="train")
     parser.add_argument("--ckpt", type=str, help="Checkpoint file for prediction")
     parser.add_argument("--from_ckpt", dest='from_ckpt', default=False, action='store_true')
     parser.add_argument("--exp_name", type=str, default="emo",
                         help="Name you experiment")
-    parser.add_argument("--write_dir", type=str, default="log/varKNF")
+    parser.add_argument("--write_dir", type=str, default="log/knf_cnn")
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--num_feats", type=int, default=360)
     parser.add_argument("--input_length", type=int, default=16)
+    parser.add_argument("--output_length", type=int, default=4)
     parser.add_argument("--save_every", type=int, default=10)
-    parser.add_argument("--hidden_channel", type=int, default=64)
-    parser.add_argument("--num_layers", type=int, default=8)
+    parser.add_argument("--backbone_hidden_channel", type=int, default=64)
+    parser.add_argument("--cls_hidden_channel", type=int, default=64)
+    parser.add_argument("--transformer_layers", type=int, default=3)
+    parser.add_argument("--transformer_hidden_channel", type=int, default=256)
+    parser.add_argument("--num_layers", type=int, default=4)
+    parser.add_argument("--add_global_operator",
+                        dest='add_global_operator', action='store_true')
     parser.add_argument("--seed", type=int, default=901)
-    parser.add_argument("--dataset", type=str, default="emotion")
+    parser.add_argument("--dataset", type=str, default=None)
     parser.add_argument("--dropout", type=float, default=0.5)
     parser.add_argument("--model", type=str, default="fmri_cnn")
+    parser.add_argument("--rank", type=int, default=-1)
     parser.set_defaults(
         use_revin=False,
         use_instancenorm=False)
@@ -256,15 +278,26 @@ def run_training():
 
     main(
         args.seed,
-        args.input_length,
-        args.num_feats,
-        args.num_layers,
-        args.hidden_channel,
-        args.batch_size,
-        args.lr, args.mode,
-        args.max_epochs,
-        args.dropout,
-        args.model)
+        args.rank,
+        backbone_layers=args.num_layers,
+        backbone_hidden_channel=args.backbone_hidden_channel,
+        cls_layers=8,
+        cls_hidden_channel=args.cls_hidden_channel,
+        transformer_layers=args.transformer_layers,
+        transformer_hidden=args.transformer_hidden_channel,
+        add_global_operator=args.add_global_operator,
+        input_length=args.input_length,
+        output_length=args.output_length,
+        num_feats=args.num_feats,
+        num_classes=21,
+        task_names=None,
+        batch_size=args.batch_size,
+        dropout=args.dropout,
+        mode=args.mode,
+        num_epochs=args.max_epochs,
+        learning_rate=args.lr,
+        model_str=args.model
+    )
 
 
 if __name__ == "__main__":

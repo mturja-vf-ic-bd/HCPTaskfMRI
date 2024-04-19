@@ -28,7 +28,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Main script for training KNF."""
+
 import os
 import random
 import time
@@ -48,6 +48,7 @@ from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 
+from src.model.transformer.vanilla_transformer import VanillaTransformer
 from src.trainers.utils import train_one_epoch, eval_one_epoch
 
 
@@ -72,7 +73,7 @@ def main(rank, world_size, seed,
          input_length, num_feats,
          num_layers, hidden_channel,
          batch_size, learning_rate,
-         mode, num_epochs, dropout):
+         mode, num_epochs, dropout, model_str):
     ddp_setup(rank, world_size)
     random.seed(seed)  # python random generator
     np.random.seed(seed)  # numpy random generator
@@ -97,7 +98,7 @@ def main(rank, world_size, seed,
         input_length=input_length,
         mode="train",
         jumps=1,
-        task_names=None,
+        task_names=["EMOTION"],
         datapath=data_dir,
         random_state=seed
     )
@@ -105,7 +106,7 @@ def main(rank, world_size, seed,
         input_length=input_length,
         mode="valid",
         jumps=1,
-        task_names=None,
+        task_names=["EMOTION"],
         datapath=data_dir,
         random_state=seed
     )
@@ -113,7 +114,7 @@ def main(rank, world_size, seed,
         input_length=input_length,
         mode="test",
         jumps=1,
-        task_names=None,
+        task_names=["EMOTION"],
         datapath=data_dir,
         random_state=seed
     )
@@ -133,19 +134,32 @@ def main(rank, world_size, seed,
     model_name = (
             "HCPTaskClassifier_"
             + str(dataset_name)
+            + f"_model{model_str}_"
             + f"_seed{seed}_"
               f"lr{learning_rate}_"
               f"inp{input_length}"
     )
     print(model_name)
-    model = FMRI_CNN(
-        num_layers=num_layers,
-        in_channels=num_feats,
-        hidden_channel=hidden_channel,
-        num_classes=21,
-        num_dense_layers=3,
-        dropout=dropout
-    ).to(rank)
+    if model_str == "fmri_cnn":
+        model = FMRI_CNN(
+            num_layers=num_layers,
+            in_channels=num_feats,
+            hidden_channel=hidden_channel,
+            num_classes=21,
+            num_dense_layers=3,
+            dropout=dropout
+        ).to(rank)
+    else:
+        model = VanillaTransformer(
+            num_layers=num_layers,
+            d_model=num_feats,
+            num_heads=2,
+            num_classes=21,
+            dropout=dropout,
+            num_dense_layers=3,
+            dim_feedforward=32
+        ).to(rank)
+
     results_dir = dataset_name + "_results/"
     if os.path.exists(results_dir + model_name + ".pth"):
         ckpt = torch.load(results_dir + model_name + ".pth",
@@ -159,7 +173,7 @@ def main(rank, world_size, seed,
             else:
                 model_dict[k] = v
         model.load_state_dict(model_dict)
-        model = DDP(model, device_ids=[rank])
+        model = DDP(model, device_ids=[rank], find_unused_parameters=True)
         last_epoch = ckpt["epoch"]
         learning_rate = ckpt["lr"]
         print("Resume Training")
@@ -169,7 +183,7 @@ def main(rank, world_size, seed,
         model = DDP(model, device_ids=[rank])
         if rank == 0 and not os.path.exists(results_dir):
             os.mkdir(results_dir)
-        model = DDP(model, device_ids=[rank])
+        # model = DDP(model, device_ids=[rank], find_unused_parameters=True)
         print("New model")
 
     best_model = model
@@ -183,7 +197,6 @@ def main(rank, world_size, seed,
         optimizer, step_size=10, gamma=0.95
     )  # stepwise learning rate decay
 
-    all_train_rmses, all_eval_rmses = [], []
     best_eval_loss = 1e6
 
     if mode == "train":
@@ -199,18 +212,15 @@ def main(rank, world_size, seed,
                 model,
                 rank=rank)
 
-            if eval_loss < best_eval_loss and rank == 0:
+            if eval_loss <= best_eval_loss and rank == 0:
                 best_eval_loss = eval_loss
                 best_model = model
                 torch.save({"model": best_model.state_dict(),
                             "epoch": epoch, "lr": get_lr(optimizer)},
                            results_dir + model_name + ".pth")
 
-            all_train_rmses.append(train_loss)
-            all_eval_rmses.append(eval_loss)
-
-            if torch.isnan(train_loss) or torch.isnan(eval_loss):
-                raise ValueError("The model generate NaN values")
+            # if torch.isnan(train_loss) or torch.isnan(eval_loss):
+            #     raise ValueError("The model generate NaN values")
 
             epoch_time = time.time() - start_time
             scheduler.step()
@@ -250,10 +260,11 @@ def run_training():
     parser.add_argument("--input_length", type=int, default=16)
     parser.add_argument("--save_every", type=int, default=10)
     parser.add_argument("--hidden_channel", type=int, default=64)
-    parser.add_argument("--num_layers", type=int, default=8)
+    parser.add_argument("--num_layers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=901)
     parser.add_argument("--dataset", type=str, default="emotion")
     parser.add_argument("--dropout", type=float, default=0.5)
+    parser.add_argument("--model", type=str, default="vanilla_transformer")
     parser.set_defaults(
         use_revin=False,
         use_instancenorm=False)
@@ -269,7 +280,7 @@ def run_training():
                  args.input_length, args.num_feats,
                  args.num_layers, args.hidden_channel,
                  args.batch_size, args.lr, args.mode,
-                 args.max_epochs, args.dropout),
+                 args.max_epochs, args.dropout, args.model),
              nprocs=world_size, join=True)
 
 

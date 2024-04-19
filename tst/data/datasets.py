@@ -1,5 +1,5 @@
 import unittest
-from src.data.datasets import get_segments, generate_segment_maps, generate_data_sets
+from src.data.datasets import get_segments, generate_segment_maps, generate_data_sets, store_data_into_disk
 import torch
 
 
@@ -21,10 +21,12 @@ class TestHCPTaskDataset(unittest.TestCase):
         filepath = "/Users/mturja/PycharmProjects/DeepGraphKoopmanOperator/data/HCP_7tasks"
         self.datapath = filepath
         self.input_length = 16
+        self.output_length = 4
         task_names = ["EMOTION"]
 
         self.dataset = generate_data_sets(
             input_length=self.input_length,
+            output_length=self.output_length,
             datapath=self.datapath,
             jumps=1,
             task_names=task_names,
@@ -40,5 +42,17 @@ class TestHCPTaskDataset(unittest.TestCase):
         num_roi = 360
 
         # Check if the returned tensors have the correct shapes
-        x, label = sample
+        x, y, label = sample
         self.assertEqual(x.shape, torch.Size([self.input_length, num_roi]))
+        self.assertEqual(y.shape, torch.Size([self.output_length, num_roi]))
+
+
+class TestHCPTaskStoreFunc(unittest.TestCase):
+    def testStoreFunc(self):
+        filepath = "/Users/mturja/PycharmProjects/DeepGraphKoopmanOperator/data/HCP_7tasks"
+        writedir = "/Users/mturja/PycharmProjects/DeepGraphKoopmanOperator/data"
+        input_length = 16
+        output_length = 4
+        task_names = ["EMOTION"]
+        mode = "train"
+        store_data_into_disk(filepath, input_length, output_length, 1, task_names, mode, 1, 32, writedir)
